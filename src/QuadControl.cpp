@@ -69,11 +69,14 @@ VehicleCommand QuadControl::GenerateMotorCommands(float collThrustCmd, V3F momen
   // You'll need the arm length parameter L, and the drag/thrust ratio kappa
 
   ////////////////////////////// BEGIN STUDENT CODE ///////////////////////////
+  float taux_l = momentCmd.x / L;
+  float tauy_l = momentCmd.y / L;
+  float tauz_kappa = momentCmd.z / kappa;
 
-  cmd.desiredThrustsN[0] = mass * 9.81f / 4.f; // front left
-  cmd.desiredThrustsN[1] = mass * 9.81f / 4.f; // front right
-  cmd.desiredThrustsN[2] = mass * 9.81f / 4.f; // rear left
-  cmd.desiredThrustsN[3] = mass * 9.81f / 4.f; // rear right
+  cmd.desiredThrustsN[0] = (collThrustCmd + taux_l + tauy_l - tauz_kappa) / 4.f;
+  cmd.desiredThrustsN[1] = (collThrustCmd - taux_l + tauy_l + tauz_kappa) / 4.f;
+  cmd.desiredThrustsN[2] = (collThrustCmd + taux_l - tauy_l + tauz_kappa) / 4.f;
+  cmd.desiredThrustsN[3] = (collThrustCmd - taux_l - tauy_l - tauz_kappa) / 4.f;
 
   /////////////////////////////// END STUDENT CODE ////////////////////////////
 
@@ -98,7 +101,7 @@ V3F QuadControl::BodyRateControl(V3F pqrCmd, V3F pqr)
 
   ////////////////////////////// BEGIN STUDENT CODE ///////////////////////////
 
-  
+  momentCmd = V3F(Ixx, Iyy, Izz)*kpPQR*(pqrCmd - pqr);
 
   /////////////////////////////// END STUDENT CODE ////////////////////////////
 
