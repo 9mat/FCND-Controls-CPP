@@ -132,6 +132,13 @@ V3F QuadControl::RollPitchControl(V3F accelCmd, Quaternion<float> attitude, floa
 
   ////////////////////////////// BEGIN STUDENT CODE ///////////////////////////
 
+  float c_d = collThrustCmd / mass;
+  float target_R13 = CONSTRAIN(accelCmd.x / c_d, -maxTiltAngle, maxTiltAngle);
+  float target_R23 = CONSTRAIN(accelCmd.y / c_d, -maxTiltAngle, maxTiltAngle);
+
+  pqrCmd.x = (-R(1, 0)*kpBank*(R(0, 2) - target_R13) + R(0, 0)*kpBank*(R(1, 2) - target_R23)) / R(2, 2);
+  pqrCmd.y = (-R(1, 1)*kpBank*(R(0, 2) - target_R13) + R(0, 1)*kpBank*(R(1, 2) - target_R23)) / R(2, 2);
+  pqrCmd.z = 0;
 
 
   /////////////////////////////// END STUDENT CODE ////////////////////////////
@@ -164,7 +171,25 @@ float QuadControl::AltitudeControl(float posZCmd, float velZCmd, float posZ, flo
 
   ////////////////////////////// BEGIN STUDENT CODE ///////////////////////////
 
+  //float hdot_cmd = CONSTRAIN(kpPosZ * (posZCmd - posZ) + velZCmd, -maxAscentRate, maxDescentRate);
+  //float acceleration_cmd = accelZCmd + kpVelZ * (hdot_cmd - velZ) + KiPosZ * integratedAltitudeError;
+  //thrust = mass * (CONST_GRAVITY - acceleration_cmd) / R(2, 2);
 
+  float z_err = posZCmd - posZ;
+  float p_term = kpPosZ * z_err;
+
+  float z_dot_err = velZCmd - velZ;
+  integratedAltitudeError += z_err * dt;
+
+  float d_term = kpVelZ * z_dot_err + velZ;
+  float i_term = KiPosZ * integratedAltitudeError;
+  float b_z = R(2, 2);
+
+  float u_1_bar = p_term + d_term + i_term + accelZCmd;
+
+  float acc = (u_1_bar - CONST_GRAVITY) / b_z;
+
+  thrust = -mass * CONSTRAIN(acc, -maxAscentRate / dt, maxDescentRate / dt);
 
   /////////////////////////////// END STUDENT CODE ////////////////////////////
   
@@ -202,7 +227,12 @@ V3F QuadControl::LateralPositionControl(V3F posCmd, V3F velCmd, V3F pos, V3F vel
 
   ////////////////////////////// BEGIN STUDENT CODE ///////////////////////////
 
-  
+  V3F capVelCmd = velCmd.mag() > maxSpeedXY ? velCmd.norm()*maxSpeedXY : velCmd;
+
+  accelCmd += kpPosXY * (posCmd - pos) + kpVelXY * (capVelCmd - vel);
+  accelCmd.z = 0;
+
+  if (accelCmd.mag() > maxAccelXY) accelCmd = accelCmd.norm()*maxAccelXY;
 
   /////////////////////////////// END STUDENT CODE ////////////////////////////
 
