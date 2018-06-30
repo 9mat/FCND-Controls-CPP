@@ -69,8 +69,8 @@ VehicleCommand QuadControl::GenerateMotorCommands(float collThrustCmd, V3F momen
   // You'll need the arm length parameter L, and the drag/thrust ratio kappa
 
   ////////////////////////////// BEGIN STUDENT CODE ///////////////////////////
-  float taux_l = momentCmd.x / L;
-  float tauy_l = momentCmd.y / L;
+  float taux_l = momentCmd.x / L * sqrtf(2);
+  float tauy_l = momentCmd.y / L * sqrtf(2);
   float tauz_kappa = momentCmd.z / kappa;
 
   cmd.desiredThrustsN[0] = (collThrustCmd + taux_l + tauy_l - tauz_kappa) / 4.f;
@@ -171,25 +171,9 @@ float QuadControl::AltitudeControl(float posZCmd, float velZCmd, float posZ, flo
 
   ////////////////////////////// BEGIN STUDENT CODE ///////////////////////////
 
-  //float hdot_cmd = CONSTRAIN(kpPosZ * (posZCmd - posZ) + velZCmd, -maxAscentRate, maxDescentRate);
-  //float acceleration_cmd = accelZCmd + kpVelZ * (hdot_cmd - velZ) + KiPosZ * integratedAltitudeError;
-  //thrust = mass * (CONST_GRAVITY - acceleration_cmd) / R(2, 2);
-
-  float z_err = posZCmd - posZ;
-  float p_term = kpPosZ * z_err;
-
-  float z_dot_err = velZCmd - velZ;
-  integratedAltitudeError += z_err * dt;
-
-  float d_term = kpVelZ * z_dot_err + velZ;
-  float i_term = KiPosZ * integratedAltitudeError;
-  float b_z = R(2, 2);
-
-  float u_1_bar = p_term + d_term + i_term + accelZCmd;
-
-  float acc = (u_1_bar - CONST_GRAVITY) / b_z;
-
-  thrust = -mass * CONSTRAIN(acc, -maxAscentRate / dt, maxDescentRate / dt);
+  float hdot_cmd = CONSTRAIN(kpPosZ * (posZCmd - posZ) + velZCmd, -maxAscentRate, maxDescentRate);
+  float acceleration_cmd = accelZCmd + kpVelZ * (hdot_cmd - velZ);
+  thrust = mass * (CONST_GRAVITY - acceleration_cmd) / R(2, 2);
 
   /////////////////////////////// END STUDENT CODE ////////////////////////////
   
@@ -227,9 +211,9 @@ V3F QuadControl::LateralPositionControl(V3F posCmd, V3F velCmd, V3F pos, V3F vel
 
   ////////////////////////////// BEGIN STUDENT CODE ///////////////////////////
 
-  V3F capVelCmd = velCmd.mag() > maxSpeedXY ? velCmd.norm()*maxSpeedXY : velCmd;
+  //V3F capVelCmd = velCmd.mag() > maxSpeedXY ? velCmd.norm()*maxSpeedXY : velCmd;
 
-  accelCmd += kpPosXY * (posCmd - pos) + kpVelXY * (capVelCmd - vel);
+  accelCmd -= kpPosXY * (posCmd - pos) + kpVelXY * (velCmd - vel);
   accelCmd.z = 0;
 
   if (accelCmd.mag() > maxAccelXY) accelCmd = accelCmd.norm()*maxAccelXY;
@@ -255,6 +239,13 @@ float QuadControl::YawControl(float yawCmd, float yaw)
   float yawRateCmd=0;
   ////////////////////////////// BEGIN STUDENT CODE ///////////////////////////
 
+  yawCmd = fmodf(yawCmd, 2*M_PI);
+  float yawError = yawCmd - yaw;
+
+  if (yawError > M_PI) yawError -= 2 * M_PI;
+  if (yawError < -M_PI) yawError += 2 * M_PI;
+
+  yawRateCmd = kpYaw * yawError;
 
   /////////////////////////////// END STUDENT CODE ////////////////////////////
 
