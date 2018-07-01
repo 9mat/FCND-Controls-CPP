@@ -31,6 +31,10 @@ public:
   string Get(const string& param, string defaultRet);
   V3F Get(const string& param, V3F defaultRet);
 
+  void SetFloat(const string& param, float value) {
+    _params[param] = to_string(value);
+  }
+
   void PrintAll();
 
 protected:

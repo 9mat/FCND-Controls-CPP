@@ -78,6 +78,8 @@ VehicleCommand QuadControl::GenerateMotorCommands(float collThrustCmd, V3F momen
   cmd.desiredThrustsN[2] = (collThrustCmd + taux_l - tauy_l + tauz_kappa) / 4.f;
   cmd.desiredThrustsN[3] = (collThrustCmd - taux_l - tauy_l - tauz_kappa) / 4.f;
 
+//  for (int i = 0; i < 4; i++) cmd.desiredThrustsN[i] = CONSTRAIN(cmd.desiredThrustsN[i], minMotorThrust, maxMotorThrust);
+
   /////////////////////////////// END STUDENT CODE ////////////////////////////
 
   return cmd;
@@ -171,9 +173,12 @@ float QuadControl::AltitudeControl(float posZCmd, float velZCmd, float posZ, flo
 
   ////////////////////////////// BEGIN STUDENT CODE ///////////////////////////
 
+  integratedAltitudeError += (posZCmd - posZ)*dt;
+
   float hdot_cmd = CONSTRAIN(kpPosZ * (posZCmd - posZ) + velZCmd, -maxAscentRate, maxDescentRate);
-  float acceleration_cmd = accelZCmd + kpVelZ * (hdot_cmd - velZ);
+  float acceleration_cmd = accelZCmd + kpVelZ * (hdot_cmd - velZ) + KiPosZ * integratedAltitudeError;
   thrust = mass * (CONST_GRAVITY - acceleration_cmd) / R(2, 2);
+
 
   /////////////////////////////// END STUDENT CODE ////////////////////////////
   

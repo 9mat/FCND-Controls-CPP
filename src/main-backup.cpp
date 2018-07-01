@@ -1,0 +1,445 @@
+#include "Common.h"
+#include "Trajectory.h"
+#include "Utility/Timer.h"
+
+#include "Drawing/Visualizer_GLUT.h"
+#include "Simulation/QuadDynamics.h"
+#include "Simulation/Simulator.h"
+#include "Utility/SimpleConfig.h"
+#include "Utility/StringUtils.h"
+#include "Drawing/GraphManager.h"
+#include "MavlinkNode/MavlinkTranslation.h"
+
+using SLR::Quaternion;
+using SLR::ToUpper;
+
+void KeyboardInteraction(V3F& force, shared_ptr<Visualizer_GLUT> vis);
+bool receivedResetRequest = true;
+bool paused = false;
+void PrintHelpText();
+void ProcessConfigCommands(shared_ptr<Visualizer_GLUT> vis);
+void LoadScenario(string scenarioFile);
+void ResetSimulation();
+
+vector<QuadcopterHandle> quads;
+
+shared_ptr<Visualizer_GLUT> visualizer;
+shared_ptr<GraphManager> grapher;
+
+float dtSim = 0.001f;
+const int NUM_SIM_STEPS_PER_TIMER = 5;
+Timer lastDraw;
+V3F force, moment;
+
+float simulationTime=0;
+int randomNumCarry=-1;
+
+void OnTimer(int v);
+void OnTimer2(int v);
+
+vector<QuadcopterHandle> CreateVehicles();
+string _scenarioFile="../config/1_Intro.txt";
+
+#include "MavlinkNode/MavlinkNode.h"
+shared_ptr<MavlinkNode> mlNode;
+
+int main(int argcp, char **argv)
+{
+  PrintHelpText();
+ 
+  // load parameters
+  ParamsHandle config = SimpleConfig::GetInstance();
+
+  // initialize visualizer
+  visualizer.reset(new Visualizer_GLUT(&argcp, argv));
+  grapher.reset(new GraphManager(false));
+
+  // re-load last opened scenario
+  FILE *f = fopen("../config/LastScenario.txt", "r");
+  if (f)
+  {
+    char buf[100]; buf[99] = 0;
+    fgets(buf, 99, f);
+    _scenarioFile = SLR::Trim(buf);
+    fclose(f);
+  }
+
+  LoadScenario(_scenarioFile);
+ 
+  glutTimerFunc(1,&OnTimer,0);
+  
+  glutMainLoop();
+
+  return 0;
+}
+
+vector<vector<int> > grid;
+int cur_cell = 0;
+
+int main2(int argcp, char **argv)
+{
+  PrintHelpText();
+
+  // grid: kpPosXY, kpPosZ, kpVelXY, kpVelZ
+  for (int kpPosXY = 10; kpPosXY < 40; kpPosXY += 5)
+//    for (int kpPosZ = 6; kpPosZ < 14; kpPosZ++)
+      for (int kpVelXY = 5; kpVelXY < 20; kpVelXY += 3) {
+//        for (int kpVelZ = 1; kpVelZ < 6; kpVelZ ++) {
+          vector<int> tmp = { kpPosXY, kpVelXY };
+          grid.push_back(tmp);
+        }
+
+  // load parameters
+  ParamsHandle config = SimpleConfig::GetInstance();
+
+  // initialize visualizer
+  visualizer.reset(new Visualizer_GLUT(&argcp, argv));
+  grapher.reset(new GraphManager(false));
+
+  // re-load last opened scenario
+  FILE *f = fopen("../config/LastScenario.txt", "r");
+  if (f)
+  {
+    char buf[100]; buf[99] = 0;
+    fgets(buf, 99, f);
+    _scenarioFile = SLR::Trim(buf);
+    fclose(f);
+  }
+
+  LoadScenario(_scenarioFile);
+
+  glutTimerFunc(1, &OnTimer2, 0);
+
+  glutMainLoop();
+
+  return 0;
+}
+
+void LoadScenario(string scenarioFile)
+{
+  FILE *f = fopen("../config/LastScenario.txt","w");
+  if(f)
+  {
+    fprintf(f, "%s", scenarioFile.c_str());
+    fclose(f);
+  }
+
+  ParamsHandle config = SimpleConfig::GetInstance();
+  _scenarioFile = scenarioFile;
+  config->Reset(scenarioFile);
+
+  grapher->_sources.clear();
+  grapher->graph1->RemoveAllElements();
+  grapher->graph2->RemoveAllElements();
+
+  grapher->RegisterDataSource(visualizer);
+
+  // create a quadcopter to simulate
+  quads = CreateVehicles();
+
+  visualizer->Reset();
+  visualizer->InitializeMenu(grapher->GetGraphableStrings());
+  visualizer->quads = quads;
+  visualizer->graph = grapher;
+
+  ProcessConfigCommands(visualizer);
+
+  mlNode.reset();
+  if(config->Get("Mavlink.Enable",0)!=0)
+  { 
+    mlNode.reset(new MavlinkNode());
+  }
+
+  ResetSimulation();
+}
+
+int _simCount = 0;
+float total_error = 0.0;
+vector<float> results;
+void ResetSimulation()
+{
+  printf("Total error = %f\n", total_error);
+  results.push_back(total_error);
+
+  _simCount++;
+  ParamsHandle config = SimpleConfig::GetInstance();
+
+  printf("Simulation #%d (%s)\n", _simCount, _scenarioFile.c_str());
+
+  randomNumCarry = -1;
+
+  receivedResetRequest = false;
+  simulationTime = 0;
+  config->Reset(_scenarioFile);
+  dtSim = config->Get("Sim.Timestep", 0.005f);
+
+  float value;
+  //
+  //if (_simCount < grid.size()) {
+  //  config->SetFloat("QUADCONTROLPARAMS.KPPOSXY", grid[_simCount][0]);
+  //  //config->SetFloat("QUADCONTROLPARAMS.KPPOSZ", grid[_simCount][0]);
+  //  config->SetFloat("QUADCONTROLPARAMS.KPVELXY", grid[_simCount][1]);
+  //  //config->SetFloat("QUADCONTROLPARAMS.KPVELZ", grid[_simCount][1]);
+  //}
+  //else if (_simCount == grid.size()) {
+  //  FILE *f = fopen("tuning2.txt", "w");
+  //  for (int i = 1; i < grid.size(); i++) {
+  //    fprintf(f, "%d,%d,%f\n", grid[i][0], grid[i][1], results[i]);
+  //  }
+  //  fclose(f);
+  //}
+  //config->GetFloat("QUADCONTROLPARAMS.KPPOSXY", value);
+  //printf("kpPosXY = %f\n", value);
+  ////config->GetFloat("QUADCONTROLPARAMS.KPPOSZ", value);
+  ////printf("kpPosZ = %f\n", value);
+  //config->GetFloat("QUADCONTROLPARAMS.KPVELXY", value);
+  //printf("kpVelXY = %f\n", value);
+  ////config->GetFloat("QUADCONTROLPARAMS.KPVELZ", value);
+  ////printf("kpVelZ = %f\n", value);
+
+  //total_error = 0;
+
+  for (unsigned i = 0; i<quads.size(); i++)
+  {
+    quads[i]->Reset();
+  }
+  grapher->Clear();
+}
+
+
+void OnTimer2(int)
+{
+  ParamsHandle config = SimpleConfig::GetInstance();
+
+  // logic to reset the simulation based on key input or reset conditions
+  float endTime = config->Get("Sim.EndTime", -1.f);
+  if (receivedResetRequest == true ||
+    (ToUpper(config->Get("Sim.RunMode", "Continuous")) == "REPEAT" && endTime>0 && simulationTime >= endTime))
+  {
+    ResetSimulation();
+  }
+
+  visualizer->OnMainTimer();
+
+  // main loop
+  if (!paused)
+  {
+    for (int i = 0; i < NUM_SIM_STEPS_PER_TIMER; i++)
+    {
+      for (unsigned i = 0; i < quads.size(); i++)
+      {
+        quads[i]->Run(dtSim, simulationTime, randomNumCarry, force, moment);
+        float err = 0.;
+        //printf("%d %s\n", quads[i]->GetFields().size(), quads[i]->GetFields()[16].c_str());
+        quads[i]->GetData(quads[i]->GetFields()[16], err);
+        total_error += fabs(err);
+      }
+      simulationTime += dtSim;
+    }
+    grapher->UpdateData(simulationTime);
+  }
+
+  KeyboardInteraction(force, visualizer);
+
+  if (lastDraw.ElapsedSeconds() > 0.030)
+  {
+    if (quads.size() > 0)
+    {
+      visualizer->SetArrow(quads[0]->Position() - force, quads[0]->Position());
+    }
+    visualizer->Update();
+    grapher->DrawUpdate();
+    lastDraw.Reset();
+
+    // temporarily here
+    if (mlNode)
+    {
+      mlNode->Send(MakeMavlinkPacket_Heartbeat());
+      mlNode->Send(MakeMavlinkPacket_Status());
+      mlNode->Send(MakeMavlinkPacket_LocalPose(simulationTime, quads[0]->Position(), quads[0]->Velocity()));
+      mlNode->Send(MakeMavlinkPacket_Attitude(simulationTime, quads[0]->Attitude(), quads[0]->Omega()));
+    }
+
+  }
+
+  glutTimerFunc(5, &OnTimer2, 0);
+}
+
+void OnTimer(int)
+{
+  ParamsHandle config = SimpleConfig::GetInstance();
+  
+  // logic to reset the simulation based on key input or reset conditions
+  float endTime = config->Get("Sim.EndTime",-1.f);
+  if(receivedResetRequest ==true ||
+     (ToUpper(config->Get("Sim.RunMode", "Continuous"))=="REPEAT" && endTime>0 && simulationTime >= endTime))
+  {
+    ResetSimulation();
+  }
+  
+  visualizer->OnMainTimer();
+  
+  // main loop
+  if (!paused)
+  {
+    for (int i = 0; i < NUM_SIM_STEPS_PER_TIMER; i++)
+    {
+      for (unsigned i = 0; i < quads.size(); i++)
+      {
+        quads[i]->Run(dtSim, simulationTime, randomNumCarry, force, moment);
+      }
+      simulationTime += dtSim;
+    }
+    grapher->UpdateData(simulationTime);
+  }
+  
+  KeyboardInteraction(force, visualizer);
+  
+  if (lastDraw.ElapsedSeconds() > 0.030)
+  {
+    if (quads.size() > 0)
+    {
+      visualizer->SetArrow(quads[0]->Position() - force, quads[0]->Position());
+    }
+    visualizer->Update();
+    grapher->DrawUpdate();
+    lastDraw.Reset();
+
+    // temporarily here
+    if (mlNode)
+    {
+      mlNode->Send(MakeMavlinkPacket_Heartbeat());
+      mlNode->Send(MakeMavlinkPacket_Status());
+      mlNode->Send(MakeMavlinkPacket_LocalPose(simulationTime, quads[0]->Position(), quads[0]->Velocity()));
+      mlNode->Send(MakeMavlinkPacket_Attitude(simulationTime, quads[0]->Attitude(), quads[0]->Omega()));
+    }
+    
+  }
+  
+  glutTimerFunc(5,&OnTimer,0);
+}
+
+vector<QuadcopterHandle> CreateVehicles()
+{
+  vector<QuadcopterHandle> ret;
+
+  ParamsHandle config = SimpleConfig::GetInstance();
+  int i = 1;
+  while (1)
+  {
+    char buf[100];
+    sprintf_s(buf, 100, "Sim.Vehicle%d", i);
+    if (config->Exists(buf))
+    {
+      QuadcopterHandle q = QuadDynamics::Create(config->Get(buf, "Quad"), (int)ret.size());
+      grapher->RegisterDataSource(q);
+      ret.push_back(q);
+    }
+    else
+    {		
+      break;
+    }
+    i++;
+  }
+  return ret;
+
+}
+
+void KeyboardInteraction(V3F& force, shared_ptr<Visualizer_GLUT> visualizer)
+{
+  bool keyPressed = false;
+  const float forceStep = 0.04f;
+
+  if (visualizer->IsSpecialKeyDown(GLUT_KEY_LEFT))
+  {
+    force += V3F(0, -forceStep, 0);
+    keyPressed = true;
+  }
+  if (visualizer->IsSpecialKeyDown(GLUT_KEY_UP))
+  {
+    force += V3F(0, 0, -forceStep);
+    keyPressed = true;
+  }
+  if (visualizer->IsSpecialKeyDown(GLUT_KEY_RIGHT))
+  {
+    force += V3F(0, forceStep, 0);
+    keyPressed = true;
+  }
+  if (visualizer->IsSpecialKeyDown(GLUT_KEY_DOWN))
+  {
+    force += V3F(0, 0, forceStep);
+    keyPressed = true;
+  }
+  if (visualizer->IsKeyDown('w') || visualizer->IsKeyDown('W'))
+  {
+    force += V3F(forceStep, 0, 0);
+    keyPressed = true;
+  }
+  if (visualizer->IsKeyDown('s') || visualizer->IsKeyDown('S'))
+  {
+    force += V3F(-forceStep, 0, 0);
+    keyPressed = true;
+  }
+
+  if (!keyPressed)
+  {
+    force = V3F();
+  }
+  if (force.mag() > 2.f)
+  {
+    force = force / force.mag() * 2.f;
+  }
+
+  if (visualizer->IsKeyDown('c') || visualizer->IsKeyDown('C'))
+  {
+    visualizer->graph->graph1->RemoveAllElements();
+    visualizer->graph->graph2->RemoveAllElements();
+  }
+
+  if (visualizer->IsKeyDown('r') || visualizer->IsKeyDown('R'))
+  {
+    receivedResetRequest = true;
+  }
+
+  static bool key_space_pressed = false;
+
+  if (visualizer->IsKeyDown(' '))
+  {
+    if (!key_space_pressed)
+    {
+      key_space_pressed = true;
+      paused = !paused;
+      visualizer->paused = paused;
+    }
+  }
+  else
+  {
+    key_space_pressed = false;
+  }
+}
+
+void ProcessConfigCommands(shared_ptr<Visualizer_GLUT> vis)
+{
+  ParamsHandle config = SimpleConfig::GetInstance();
+  int i = 1;
+  while (1)
+  {
+    char buf[100];
+    sprintf_s(buf, 100, "Commands.%d", i);
+    string cmd = config->Get(buf, "");
+    if (cmd == "") break;
+    vis->OnMenu(cmd);
+    i++;
+  }
+}
+
+void PrintHelpText()
+{
+  printf("SIMULATOR!\n");
+  printf("Select main window to interact with keyboard/mouse:\n");
+  printf("LEFT DRAG / X+LEFT DRAG / Z+LEFT DRAG = rotate, pan, zoom camera\n");
+  printf("W/S/UP/LEFT/DOWN/RIGHT - apply force\n");
+  printf("C - clear all graphs\n");
+  printf("R - reset simulation\n");
+  printf("Space - pause simulation\n");
+}
