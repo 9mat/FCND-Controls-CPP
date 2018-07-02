@@ -4,7 +4,7 @@ You are reading the writeup.
 
 #### Implemented body rate control in C++
 
-It is implemented in `QuadControl::BodyRateControl` function
+It is implemented in `QuadControl::BodyRateControl` function, using P controller with gain of 70 for all the three components.
 
 ```c++
 V3F QuadControl::BodyRateControl(V3F pqrCmd, V3F pqr)
@@ -17,7 +17,7 @@ V3F QuadControl::BodyRateControl(V3F pqrCmd, V3F pqr)
 
 #### Implement roll pitch control in C++
 
-It is implemented in `QuadControl::RollPitchControl` function
+It is implemented in `QuadControl::RollPitchControl` function, using P controller with gain of 10.
 
 ```c++
 V3F QuadControl::RollPitchControl(V3F accelCmd, Quaternion<float> attitude, float collThrustCmd)
@@ -39,7 +39,7 @@ V3F QuadControl::RollPitchControl(V3F accelCmd, Quaternion<float> attitude, floa
 
 #### Implement altitude controller in C++
 
-It is implemented in `QuadControl::AltitudeControl` function
+It is implemented in `QuadControl::AltitudeControl` function, using PDI control, with gain for P-component `kpPosZ = 18`, gain for D-component `kpVelZ=6` (note: this is multiplied with the P-gain), and gain for I-component `kiPosZ = 2`.
 
 ```c++
 float QuadControl::AltitudeControl(float posZCmd, float velZCmd, float posZ, float velZ, Quaternion<float> attitude, float accelZCmd, float dt)
@@ -59,7 +59,7 @@ float QuadControl::AltitudeControl(float posZCmd, float velZCmd, float posZ, flo
 
 #### Implement lateral position control in C++
 
-It is implemented in `QuadControl::LateralPositionControl` function
+It is implemented in `QuadControl::LateralPositionControl` function, using PD controller with P-gain of 30 and D-gain of 12.
 
 ```c++
 V3F QuadControl::LateralPositionControl(V3F posCmd, V3F velCmd, V3F pos, V3F vel, V3F accelCmdFF)
@@ -81,7 +81,7 @@ V3F QuadControl::LateralPositionControl(V3F posCmd, V3F velCmd, V3F pos, V3F vel
 
 #### Implement yaw control in C++
 
-It is implemented in `QuadControl::YawControl` function.
+It is implemented in `QuadControl::YawControl` function, using P-controller with gain of 2.
 
 ```c++
 float QuadControl::YawControl(float yawCmd, float yaw)
@@ -100,7 +100,7 @@ float QuadControl::YawControl(float yawCmd, float yaw)
 
 #### Implement calculating the motor commands given commanded thrust and moments in C++
 
-It is implemented in `QuadControl::GenerateMotorCommands` function.
+It is implemented in `QuadControl::GenerateMotorCommands` function, obtaining by inverting the system of 4 equations that relate the 4 thrusts to the collective thrust and the 3 moments.
 
 ```C++
 VehicleCommand QuadControl::GenerateMotorCommands(float collThrustCmd, V3F momentCmd)
